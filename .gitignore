@@ -42,7 +42,7 @@ node_modules/
 jspm_packages/
 
 #Vscode directories 
-.vscode/
+.vscode
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
