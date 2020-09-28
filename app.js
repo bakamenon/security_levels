@@ -4,8 +4,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const encrypt = require("mongoose-encryption");
 const { trim } = require("lodash");
+const md5 = require("md5");
 
 const app = express();
 
@@ -36,16 +36,8 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: [true, "E-0003 : Please Enter At Least Six Character Password"],
     minlength: 6,
-    maxlength: 256,
+    maxlength: 1024,
   },
-});
-
-// Database encryption using a passphrase
-const passPhrase = process.env.DB_PASSWORD;
-
-userSchema.plugin(encrypt, {
-  secret: passPhrase,
-  encryptedFields: ["password"],
 });
 
 const User = mongoose.model("User", userSchema);
@@ -62,23 +54,43 @@ app.get("/register", function (req, res) {
   res.render("register");
 });
 
+app.get("/logout", function (req, res) {
+  res.render("home");
+});
+
+app.get("/submit", function (req, res) {
+  res.render("submit");
+});
+
 app.post("/register", function (req, res) {
   const newUser = new User({
     email: req.body.username,
     password: req.body.password,
   });
   newUser.validate(function (err) {
-    if (!err) {
-      newUser.save(function (err) {
-        if (!err) {
-          res.render("secrets");
-        } else {
-          console.log(err);
-        }
-      });
-    } else {
+    if (err) {
       console.log(err);
       res.send("Invalid Email Format or Password Length less than 6 chars");
+    } else {
+      User.findOne({ email: newUser.email }, function (err, foundUser) {
+        if (err) {
+          res.send("Database Error");
+          console.log(err);
+        } else {
+          if (!foundUser) {
+            newUser.password = md5(newUser.password);
+            newUser.save(function (err) {
+              if (!err) {
+                res.render("secrets");
+              } else {
+                console.log(err);
+              }
+            });
+          } else {
+            res.send("User Already Registered, please use login option");
+          }
+        }
+      });
     }
   });
 });
@@ -93,6 +105,7 @@ app.post("/login", function (req, res) {
       console.log(err);
       res.send("Invalid Input, check console logs for details");
     } else {
+      loginUser.password = md5(loginUser.password);
       User.findOne({ email: loginUser.email }, function (err, foundUser) {
         if (!err) {
           if (foundUser && foundUser.password === loginUser.password) {
