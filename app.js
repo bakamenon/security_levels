@@ -1,46 +1,62 @@
 //jshint esversion:6
+
+require("dotenv").config();
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
 const { trim, result } = require("lodash");
-const bcrypt = require("bcrypt");
-const saltRounds = 4;
+// Cookies and Sessions
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 
 const app = express();
 
 app.set("view engine", "ejs");
+
 app.use(bodyParser.urlencoded({ extended: true }));
+
 app.use(express.static("public"));
 
+// To use sessions - 1 use expesss-session
+app.use(
+  session({
+    secret: process.env.PASSPHRASE,
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+
+// To use sessions - 2 use passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+//Connect to mongoose database
 mongoose.connect("mongodb://localhost:27017/userDB", {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  useFindAndModify: false,
 });
+mongoose.set("useCreateIndex", true);
 
 //Username Schema
 const userSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: [true, "DBE-0001 : Username Cannot be Empty"],
-    trim: true,
-    unique: true,
-    match: [
-      /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/,
-      "DBE-0002 : Please Fill a Valid Email Address like user@example.com",
-    ],
-    lowercase: true,
-  },
-  password: {
-    type: String,
-    required: [true, "DBE-0003 : Please Enter At Least Six Character Password"],
-    minlength: 6,
-    maxlength: 1024,
-  },
+  email: String,
+  password: String,
 });
 
+// To use sessions - 3 Attach the plugin  passport-local-mongoose before the model is created
+userSchema.plugin(passportLocalMongoose);
+
 const User = mongoose.model("User", userSchema);
+
+// To use sessions - 4 use passort create locak strategy (TODO: What is strategy?)
+passport.use(User.createStrategy());
+
+//TODO: Explore the below options
+passport.serializeUser(User.serializeUser());
+passport.deserializeUser(User.deserializeUser());
 
 app.get("/", function (req, res) {
   res.render("home");
@@ -54,8 +70,17 @@ app.get("/register", function (req, res) {
   res.render("register");
 });
 
+app.get("/secrets", function (req, res) {
+  if (req.isAuthenticated()) {
+    res.render("secrets");
+  } else {
+    res.redirect("/");
+  }
+});
+
 app.get("/logout", function (req, res) {
-  res.render("home");
+  req.logout();
+  res.redirect("/");
 });
 
 app.get("/submit", function (req, res) {
@@ -63,77 +88,32 @@ app.get("/submit", function (req, res) {
 });
 
 app.post("/register", function (req, res) {
-  const newUser = new User({
-    email: req.body.username,
-    password: req.body.password,
-  });
-  newUser.validate(function (err) {
+  const username = req.body.username;
+  const password = req.body.password;
+  User.register({ username: username }, password, function (err, user) {
     if (err) {
       console.log(err);
-      res.send("Invalid Email Format or Password Length less than 6 chars");
+      res.redirect("/register");
     } else {
-      User.findOne({ email: newUser.email }, function (err, foundUser) {
-        if (err) {
-          res.send("Database Error");
-          console.log(err);
-        } else {
-          if (!foundUser) {
-            bcrypt.hash(newUser.password, saltRounds, function (err, hash) {
-              if (!err) {
-                newUser.password = hash;
-                newUser.save(function (err) {
-                  if (!err) {
-                    res.render("secrets");
-                  } else {
-                    console.log(err);
-                  }
-                });
-              } else {
-                console.log(err);
-              }
-            });
-          } else {
-            res.send("User Already Registered, please use login option");
-          }
-        }
+      passport.authenticate("local")(req, res, function () {
+        res.redirect("/secrets");
       });
     }
   });
 });
 
 app.post("/login", function (req, res) {
-  const loginUser = new User({
-    email: req.body.username,
+  const user = new User({
+    username: req.body.username,
     password: req.body.password,
   });
-  loginUser.validate(function (err) {
+  req.login(user, function (err) {
     if (err) {
-      console.log(err);
-      res.send("Invalid Input, check console logs for details");
+      console(err);
+      res.redirect("/login");
     } else {
-      User.findOne({ email: loginUser.email }, function (err, foundUser) {
-        if (!err) {
-          bcrypt.compare(loginUser.password, foundUser.password, function (
-            err,
-            result
-          ) {
-            if (!err) {
-              if (foundUser && result) {
-                res.render("secrets");
-              } else {
-                if (!foundUser) {
-                  res.send("User Not Found in Database");
-                } else {
-                  res.send("Password Incorrect");
-                }
-              }
-            } else {
-              res.send(err);
-            }
-          });
-        } else {
-          res.send(err);
-        }
+      passport.authenticate("local")(req, res, function () {
+        res.redirect("/secrets");
       });
     }
   });
