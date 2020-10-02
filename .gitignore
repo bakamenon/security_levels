@@ -120,3 +120,6 @@ dist
 
 # Scrap.txt 
 scrap.txt
+
+#mongoDB exports
+users_passportjs.json
