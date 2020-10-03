@@ -1,0 +1,3 @@
+# Needed for Excluding the EJS Partials, else prettier tries to Pretty the fucking code and 
+# mess up the HTML rendering (may be)
+partials/
