@@ -14,15 +14,17 @@ const session = require("express-session");
 const passport = require("passport");
 const passportLocalMongoose = require("passport-local-mongoose");
 
-//Google OAUTH2
+//Passport Strategy - Google OAUTH2
 const GoogleStrategy = require("passport-google-oauth20").Strategy;
+
+//Passport Strategy - Facebook OAUTH2
+const FacebookStrategy = require("passport-facebook").Strategy;
 
 const app = express();
 
+// Standard boilerplate ejs / body-parser / express stuff
 app.set("view engine", "ejs");
-
 app.use(bodyParser.urlencoded({ extended: true }));
-
 app.use(express.static("public"));
 
 // To use sessions - 1 use expesss-session
@@ -34,7 +36,7 @@ app.use(
   })
 );
 
-// To use sessions - 2 use passport
+// To use sessions - 2 use passport initialize and session
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -51,6 +53,7 @@ const userSchema = new mongoose.Schema({
   password: String,
   googleId: String,
   facebookId: String,
+  secret: String,
 });
 
 // To use sessions - 3 Attach the plugin  passport-local-mongoose before the model is created
@@ -83,7 +86,25 @@ passport.use(
       userProfileURL: "https://www.googleapis.com/oauth2/v3/userinfo",
     },
     function (accessToken, refreshToken, profile, cb) {
+      console.log(profile);
       User.findOrCreate({ googleId: profile.id }, function (err, user) {
+        return cb(err, user);
+      });
+    }
+  )
+);
+
+//Facebook OAUTH2 comes *AFTER* the Passport create startegy, sereialize and deserialse is done
+passport.use(
+  new FacebookStrategy(
+    {
+      clientID: process.env.FACEBOOK_APP_ID,
+      clientSecret: process.env.FACEBOOK_APP_SECRET,
+      callbackURL: "http://localhost:3000/auth/facebook/secrets",
+    },
+    function (accessToken, refreshToken, profile, cb) {
+      console.log(profile);
+      User.findOrCreate({ facebookId: profile.id }, function (err, user) {
         return cb(err, user);
       });
     }
@@ -94,11 +115,22 @@ app.get("/", function (req, res) {
   res.render("home");
 });
 
-//Auth with google OAUTH2
+//Auth with Google OAUTH2
 app.get("/auth/google", passport.authenticate("google", { scope: ["profile"] }));
 
 //... And once the auth is successful route it to required page or if failed, go back to login page
 app.get("/auth/google/secrets", passport.authenticate("google", { failureRedirect: "/login" }), function (req, res) {
+  res.redirect("/secrets");
+});
+
+//Auth with Facebook OAUTH2
+app.get("/auth/facebook", passport.authenticate("facebook"));
+
+//... And once the auth is successful route it to required page or if failed, go back to login page
+app.get("/auth/facebook/secrets", passport.authenticate("facebook", { failureRedirect: "/login" }), function (
+  req,
+  res
+) {
   res.redirect("/secrets");
 });
 
@@ -111,11 +143,16 @@ app.get("/register", function (req, res) {
 });
 
 app.get("/secrets", function (req, res) {
-  if (req.isAuthenticated()) {
-    res.render("secrets");
-  } else {
-    res.redirect("/");
-  }
+  User.find({ secret: { $ne: null } }, function (err, secrets) {
+    if (err) {
+      console.log(err);
+      res.send(err);
+    } else {
+      res.render("secrets", {
+        secrets: secrets,
+      });
+    }
+  });
 });
 
 app.get("/logout", function (req, res) {
@@ -124,7 +161,11 @@ app.get("/logout", function (req, res) {
 });
 
 app.get("/submit", function (req, res) {
-  res.render("submit");
+  if (req.isAuthenticated()) {
+    res.render("submit");
+  } else {
+    res.redirect("/");
+  }
 });
 
 app.post("/register", function (req, res) {
@@ -156,6 +197,28 @@ app.post("/login", function (req, res) {
       passport.authenticate("local")(req, res, function () {
         res.redirect("/secrets");
       });
+    }
+  });
+});
+
+app.post("/submit", function (req, res) {
+  const submittedSecret = req.body.secret;
+  User.findById(req.user.id, function (err, foundUser) {
+    if (err) {
+      console.log(err);
+      res.send(err);
+    } else {
+      if (foundUser) {
+        foundUser.secret = submittedSecret;
+        foundUser.save(function (err) {
+          if (err) {
+            console.log(err);
+            res.send(err);
+          } else {
+            res.redirect("/secrets");
+          }
+        });
+      }
     }
   });
 });
